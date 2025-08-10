@@ -93,7 +93,7 @@ func New(usePerfBuf bool) (*Tracer, error) {
 		}
 		t.objs = ringObjs
 
-		l, err := link.Kprobe("sys_openat", ringObjs.KprobeOpenat, nil)
+		l, err := link.Kprobe("do_dentry_open", ringObjs.KprobeFileOpen, nil)
 		if err != nil {
 			ringObjs.Close()
 			return nil, fmt.Errorf("attach kprobe: %w", err)
@@ -114,7 +114,7 @@ func New(usePerfBuf bool) (*Tracer, error) {
 		}
 		t.objs = perfObjs
 
-		l, err := link.Kprobe("sys_openat", perfObjs.KprobeOpenat, nil)
+		l, err := link.Kprobe("do_dentry_open", perfObjs.KprobeFileOpen, nil)
 		if err != nil {
 			perfObjs.Close()
 			return nil, fmt.Errorf("attach kprobe: %w", err)
@@ -154,18 +154,19 @@ func (t *Tracer) Run() error {
 		eventType := binary.LittleEndian.Uint32(rawSample[:4])
 
 		switch bpf.BpfEventType(eventType) {
-		case bpf.BpfEventTypeEVENT_TYPE_OPENAT:
-			var event bpf.BpfOpenatEvent
+		case bpf.BpfEventTypeEVENT_TYPE_LIBRARY_LOAD:
+			var event bpf.BpfLibraryLoadEvent
 			if err := binary.Read(bytes.NewBuffer(rawSample), binary.LittleEndian, &event); err != nil {
-				slog.Error("parsing openat event", "error", err)
+				slog.Error("parsing library load event", "error", err)
 				continue
 			}
 			comm := unix.ByteSliceToString(event.Header.Comm[:])
-			slog.Info("openat event",
+			libName := unix.ByteSliceToString(event.LibraryName[:])
+			slog.Info("library loaded",
 				"pid", event.Header.Pid,
 				"tgid", event.Header.Tgid,
-				"uid", event.Uid,
 				"comm", comm,
+				"library", libName,
 			)
 
 		default:

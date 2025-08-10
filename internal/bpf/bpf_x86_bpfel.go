@@ -16,14 +16,13 @@ import (
 type BpfEventType uint32
 
 const (
-	BpfEventTypeEVENT_TYPE_OPENAT BpfEventType = 1
+	BpfEventTypeEVENT_TYPE_LIBRARY_LOAD BpfEventType = 1
 )
 
-type BpfOpenatEvent struct {
-	_      structs.HostLayout
-	Header BpfTraceEventHeader
-	Uid    uint32
-	_      [4]byte
+type BpfLibraryLoadEvent struct {
+	_           structs.HostLayout
+	Header      BpfTraceEventHeader
+	LibraryName [64]uint8
 }
 
 type BpfTraceEventHeader struct {
@@ -78,22 +77,22 @@ type BpfSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfProgramSpecs struct {
-	KprobeOpenat *ebpf.ProgramSpec `ebpf:"kprobe_openat"`
+	KprobeFileOpen *ebpf.ProgramSpec `ebpf:"kprobe_file_open"`
 }
 
 // BpfMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfMapSpecs struct {
-	Events     *ebpf.MapSpec `ebpf:"events"`
-	OpenatHeap *ebpf.MapSpec `ebpf:"openat_heap"`
+	Events      *ebpf.MapSpec `ebpf:"events"`
+	LibraryHeap *ebpf.MapSpec `ebpf:"library_heap"`
 }
 
 // BpfVariableSpecs contains global variables before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfVariableSpecs struct {
-	UnusedOpenat *ebpf.VariableSpec `ebpf:"unused_openat"`
+	UnusedLibrary *ebpf.VariableSpec `ebpf:"unused_library"`
 }
 
 // BpfObjects contains all objects after they have been loaded into the kernel.
@@ -116,14 +115,14 @@ func (o *BpfObjects) Close() error {
 //
 // It can be passed to LoadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfMaps struct {
-	Events     *ebpf.Map `ebpf:"events"`
-	OpenatHeap *ebpf.Map `ebpf:"openat_heap"`
+	Events      *ebpf.Map `ebpf:"events"`
+	LibraryHeap *ebpf.Map `ebpf:"library_heap"`
 }
 
 func (m *BpfMaps) Close() error {
 	return _BpfClose(
 		m.Events,
-		m.OpenatHeap,
+		m.LibraryHeap,
 	)
 }
 
@@ -131,19 +130,19 @@ func (m *BpfMaps) Close() error {
 //
 // It can be passed to LoadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfVariables struct {
-	UnusedOpenat *ebpf.Variable `ebpf:"unused_openat"`
+	UnusedLibrary *ebpf.Variable `ebpf:"unused_library"`
 }
 
 // BpfPrograms contains all programs after they have been loaded into the kernel.
 //
 // It can be passed to LoadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfPrograms struct {
-	KprobeOpenat *ebpf.Program `ebpf:"kprobe_openat"`
+	KprobeFileOpen *ebpf.Program `ebpf:"kprobe_file_open"`
 }
 
 func (p *BpfPrograms) Close() error {
 	return _BpfClose(
-		p.KprobeOpenat,
+		p.KprobeFileOpen,
 	)
 }
 

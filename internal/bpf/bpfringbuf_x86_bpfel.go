@@ -54,7 +54,7 @@ type BpfRingbufSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfRingbufProgramSpecs struct {
-	KprobeOpenat *ebpf.ProgramSpec `ebpf:"kprobe_openat"`
+	KprobeFileOpen *ebpf.ProgramSpec `ebpf:"kprobe_file_open"`
 }
 
 // BpfRingbufMapSpecs contains maps before they are loaded into the kernel.
@@ -68,7 +68,7 @@ type BpfRingbufMapSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfRingbufVariableSpecs struct {
-	UnusedOpenat *ebpf.VariableSpec `ebpf:"unused_openat"`
+	UnusedLibrary *ebpf.VariableSpec `ebpf:"unused_library"`
 }
 
 // BpfRingbufObjects contains all objects after they have been loaded into the kernel.
@@ -104,19 +104,19 @@ func (m *BpfRingbufMaps) Close() error {
 //
 // It can be passed to LoadBpfRingbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfRingbufVariables struct {
-	UnusedOpenat *ebpf.Variable `ebpf:"unused_openat"`
+	UnusedLibrary *ebpf.Variable `ebpf:"unused_library"`
 }
 
 // BpfRingbufPrograms contains all programs after they have been loaded into the kernel.
 //
 // It can be passed to LoadBpfRingbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfRingbufPrograms struct {
-	KprobeOpenat *ebpf.Program `ebpf:"kprobe_openat"`
+	KprobeFileOpen *ebpf.Program `ebpf:"kprobe_file_open"`
 }
 
 func (p *BpfRingbufPrograms) Close() error {
 	return _BpfRingbufClose(
-		p.KprobeOpenat,
+		p.KprobeFileOpen,
 	)
 }
 

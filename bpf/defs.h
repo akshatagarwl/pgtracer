@@ -1,7 +1,7 @@
 #pragma once
 
 enum event_type {
-  EVENT_TYPE_OPENAT = 1,
+  EVENT_TYPE_LIBRARY_LOAD = 1,
 };
 
 struct trace_event_header {
@@ -12,9 +12,9 @@ struct trace_event_header {
   u8 comm[16];
 };
 
-struct openat_event {
+struct library_load_event {
   struct trace_event_header header;
-  u32 uid;
+  u8 library_name[64];
 };
 
-const struct openat_event *unused_openat __attribute__((unused));
+const struct library_load_event *unused_library __attribute__((unused));

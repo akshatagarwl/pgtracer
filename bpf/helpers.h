@@ -12,22 +12,22 @@ static __always_inline u32 extract_uid(u64 uid_gid) {
 
 static __always_inline u32 extract_gid(u64 uid_gid) { return uid_gid >> 32; }
 
-static __always_inline struct openat_event *reserve_openat_event(void) {
+static __always_inline struct library_load_event *reserve_library_event(void) {
 #ifdef USE_RING_BUF
-  return bpf_ringbuf_reserve(&events, sizeof(struct openat_event), 0);
+  return bpf_ringbuf_reserve(&events, sizeof(struct library_load_event), 0);
 #else
   u32 zero = 0;
-  return bpf_map_lookup_elem(&openat_heap, &zero);
+  return bpf_map_lookup_elem(&library_heap, &zero);
 #endif
 }
 
-static __always_inline void send_openat_event(void *ctx,
-                                              struct openat_event *e) {
+static __always_inline void send_library_event(void *ctx,
+                                               struct library_load_event *e) {
 #ifdef USE_RING_BUF
   bpf_ringbuf_submit(e, 0);
 #else
   bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, e,
-                        sizeof(struct openat_event));
+                        sizeof(struct library_load_event));
 #endif
 }
 
