@@ -69,7 +69,8 @@ type BpfProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfMapSpecs struct {
-	Events *ebpf.MapSpec `ebpf:"events"`
+	EventHeap *ebpf.MapSpec `ebpf:"event_heap"`
+	Events    *ebpf.MapSpec `ebpf:"events"`
 }
 
 // BpfVariableSpecs contains global variables before they are loaded into the kernel.
@@ -99,11 +100,13 @@ func (o *BpfObjects) Close() error {
 //
 // It can be passed to LoadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfMaps struct {
-	Events *ebpf.Map `ebpf:"events"`
+	EventHeap *ebpf.Map `ebpf:"event_heap"`
+	Events    *ebpf.Map `ebpf:"events"`
 }
 
 func (m *BpfMaps) Close() error {
 	return _BpfClose(
+		m.EventHeap,
 		m.Events,
 	)
 }

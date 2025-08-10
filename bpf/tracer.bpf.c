@@ -8,8 +8,8 @@
 #include <bpf/bpf_tracing.h>
 
 #include "defs.h"
-#include "helpers.h"
 #include "maps.h"
+#include "helpers.h"
 
 char LICENSE[] SEC("license") = "GPL";
 
@@ -17,7 +17,7 @@ SEC("kprobe/sys_openat")
 int BPF_KPROBE(kprobe_openat) {
   struct event *e;
 
-  e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+  e = reserve_event();
   if (!e) return 0;
 
   u64 pid_tgid = bpf_get_current_pid_tgid();
@@ -27,6 +27,6 @@ int BPF_KPROBE(kprobe_openat) {
   e->uid = extract_uid(uid_gid);
   bpf_get_current_comm(&e->comm, sizeof(e->comm));
 
-  bpf_ringbuf_submit(e, 0);
+  send_event(ctx, e);
   return 0;
 }
