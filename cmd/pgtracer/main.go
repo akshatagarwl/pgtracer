@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/akshatagarwl/pgtracer/internal/config"
 	"github.com/akshatagarwl/pgtracer/internal/tracer"
 )
 
@@ -17,7 +18,13 @@ func main() {
 
 	slog.Info("starting pgtracer")
 
-	t, err := tracer.New()
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("failed to load config", "error", err)
+		os.Exit(1)
+	}
+
+	t, err := tracer.New(cfg.UsePerfBuf)
 	if err != nil {
 		slog.Error("failed to create tracer", "error", err)
 		os.Exit(1)

@@ -64,16 +64,25 @@ type Tracer struct {
 	objs       BpfObjects
 }
 
-func New() (*Tracer, error) {
+func New(usePerfBuf bool) (*Tracer, error) {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		return nil, fmt.Errorf("remove memlock: %w", err)
 	}
 
-	useRingBuf := features.HaveMapType(ebpf.RingBuf) == nil
+	kernelSupportsRingBuf := features.HaveMapType(ebpf.RingBuf) == nil
+
+	useRingBuf := kernelSupportsRingBuf && !usePerfBuf
+
+	if !kernelSupportsRingBuf && !usePerfBuf {
+		slog.Info("ring buffer not supported by kernel, using perf buffer")
+		useRingBuf = false
+	}
 
 	slog.Info("loading ebpf",
 		"architecture", runtime.GOARCH,
-		"use_ring_buffer", useRingBuf)
+		"use_ring_buffer", useRingBuf,
+		"kernel_supports_ring_buf", kernelSupportsRingBuf,
+		"user_requested_perf_buf", usePerfBuf)
 
 	t := &Tracer{useRingBuf: useRingBuf}
 
