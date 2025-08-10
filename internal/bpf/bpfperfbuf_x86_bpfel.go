@@ -61,15 +61,15 @@ type BpfPerfbufProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfPerfbufMapSpecs struct {
-	EventHeap *ebpf.MapSpec `ebpf:"event_heap"`
-	Events    *ebpf.MapSpec `ebpf:"events"`
+	Events     *ebpf.MapSpec `ebpf:"events"`
+	OpenatHeap *ebpf.MapSpec `ebpf:"openat_heap"`
 }
 
 // BpfPerfbufVariableSpecs contains global variables before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfPerfbufVariableSpecs struct {
-	Unused *ebpf.VariableSpec `ebpf:"unused"`
+	UnusedOpenat *ebpf.VariableSpec `ebpf:"unused_openat"`
 }
 
 // BpfPerfbufObjects contains all objects after they have been loaded into the kernel.
@@ -92,14 +92,14 @@ func (o *BpfPerfbufObjects) Close() error {
 //
 // It can be passed to LoadBpfPerfbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfPerfbufMaps struct {
-	EventHeap *ebpf.Map `ebpf:"event_heap"`
-	Events    *ebpf.Map `ebpf:"events"`
+	Events     *ebpf.Map `ebpf:"events"`
+	OpenatHeap *ebpf.Map `ebpf:"openat_heap"`
 }
 
 func (m *BpfPerfbufMaps) Close() error {
 	return _BpfPerfbufClose(
-		m.EventHeap,
 		m.Events,
+		m.OpenatHeap,
 	)
 }
 
@@ -107,7 +107,7 @@ func (m *BpfPerfbufMaps) Close() error {
 //
 // It can be passed to LoadBpfPerfbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfPerfbufVariables struct {
-	Unused *ebpf.Variable `ebpf:"unused"`
+	UnusedOpenat *ebpf.Variable `ebpf:"unused_openat"`
 }
 
 // BpfPerfbufPrograms contains all programs after they have been loaded into the kernel.

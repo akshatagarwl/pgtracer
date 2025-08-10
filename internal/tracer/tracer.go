@@ -134,7 +134,7 @@ func New(usePerfBuf bool) (*Tracer, error) {
 }
 
 func (t *Tracer) Run() error {
-	slog.Info("tracing openat syscalls", "message", "press ctrl+c to stop")
+	slog.Info("tracing events", "message", "press ctrl+c to stop")
 
 	for {
 		rawSample, err := t.reader.Read()
@@ -146,19 +146,31 @@ func (t *Tracer) Run() error {
 			continue
 		}
 
-		var event bpf.BpfEvent
-		if err := binary.Read(bytes.NewBuffer(rawSample), binary.LittleEndian, &event); err != nil {
-			slog.Error("parsing event", "error", err)
+		if len(rawSample) < 4 {
+			slog.Error("event too small", "size", len(rawSample))
 			continue
 		}
 
-		comm := unix.ByteSliceToString(event.Comm[:])
+		eventType := binary.LittleEndian.Uint32(rawSample[:4])
 
-		slog.Info("syscall event",
-			"tgid", event.Tgid,
-			"uid", event.Uid,
-			"comm", comm,
-		)
+		switch bpf.BpfEventType(eventType) {
+		case bpf.BpfEventTypeEVENT_TYPE_OPENAT:
+			var event bpf.BpfOpenatEvent
+			if err := binary.Read(bytes.NewBuffer(rawSample), binary.LittleEndian, &event); err != nil {
+				slog.Error("parsing openat event", "error", err)
+				continue
+			}
+			comm := unix.ByteSliceToString(event.Header.Comm[:])
+			slog.Info("openat event",
+				"pid", event.Header.Pid,
+				"tgid", event.Header.Tgid,
+				"uid", event.Uid,
+				"comm", comm,
+			)
+
+		default:
+			slog.Warn("unknown event type", "type", eventType)
+		}
 	}
 }
 

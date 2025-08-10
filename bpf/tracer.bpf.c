@@ -15,18 +15,16 @@ char LICENSE[] SEC("license") = "GPL";
 
 SEC("kprobe/sys_openat")
 int BPF_KPROBE(kprobe_openat) {
-  struct event *e;
+  struct openat_event *e;
 
-  e = reserve_event();
+  e = reserve_openat_event();
   if (!e) return 0;
 
-  u64 pid_tgid = bpf_get_current_pid_tgid();
+  fill_event_header(&e->header, EVENT_TYPE_OPENAT);
+
   u64 uid_gid = bpf_get_current_uid_gid();
-
-  e->tgid = extract_tgid(pid_tgid);
   e->uid = extract_uid(uid_gid);
-  bpf_get_current_comm(&e->comm, sizeof(e->comm));
 
-  send_event(ctx, e);
+  send_openat_event(ctx, e);
   return 0;
 }

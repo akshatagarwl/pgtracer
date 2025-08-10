@@ -13,11 +13,27 @@ import (
 	"github.com/cilium/ebpf"
 )
 
-type BpfEvent struct {
-	_    structs.HostLayout
-	Tgid uint32
-	Uid  uint32
-	Comm [16]uint8
+type BpfEventType uint32
+
+const (
+	BpfEventTypeEVENT_TYPE_OPENAT BpfEventType = 1
+)
+
+type BpfOpenatEvent struct {
+	_      structs.HostLayout
+	Header BpfTraceEventHeader
+	Uid    uint32
+	_      [4]byte
+}
+
+type BpfTraceEventHeader struct {
+	_         structs.HostLayout
+	Type      BpfEventType
+	_         [4]byte
+	Timestamp uint64
+	Pid       uint32
+	Tgid      uint32
+	Comm      [16]uint8
 }
 
 // LoadBpf returns the embedded CollectionSpec for Bpf.
@@ -69,15 +85,15 @@ type BpfProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfMapSpecs struct {
-	EventHeap *ebpf.MapSpec `ebpf:"event_heap"`
-	Events    *ebpf.MapSpec `ebpf:"events"`
+	Events     *ebpf.MapSpec `ebpf:"events"`
+	OpenatHeap *ebpf.MapSpec `ebpf:"openat_heap"`
 }
 
 // BpfVariableSpecs contains global variables before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfVariableSpecs struct {
-	Unused *ebpf.VariableSpec `ebpf:"unused"`
+	UnusedOpenat *ebpf.VariableSpec `ebpf:"unused_openat"`
 }
 
 // BpfObjects contains all objects after they have been loaded into the kernel.
@@ -100,14 +116,14 @@ func (o *BpfObjects) Close() error {
 //
 // It can be passed to LoadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfMaps struct {
-	EventHeap *ebpf.Map `ebpf:"event_heap"`
-	Events    *ebpf.Map `ebpf:"events"`
+	Events     *ebpf.Map `ebpf:"events"`
+	OpenatHeap *ebpf.Map `ebpf:"openat_heap"`
 }
 
 func (m *BpfMaps) Close() error {
 	return _BpfClose(
-		m.EventHeap,
 		m.Events,
+		m.OpenatHeap,
 	)
 }
 
@@ -115,7 +131,7 @@ func (m *BpfMaps) Close() error {
 //
 // It can be passed to LoadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfVariables struct {
-	Unused *ebpf.Variable `ebpf:"unused"`
+	UnusedOpenat *ebpf.Variable `ebpf:"unused_openat"`
 }
 
 // BpfPrograms contains all programs after they have been loaded into the kernel.

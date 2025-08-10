@@ -68,7 +68,7 @@ type BpfRingbufMapSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfRingbufVariableSpecs struct {
-	Unused *ebpf.VariableSpec `ebpf:"unused"`
+	UnusedOpenat *ebpf.VariableSpec `ebpf:"unused_openat"`
 }
 
 // BpfRingbufObjects contains all objects after they have been loaded into the kernel.
@@ -104,7 +104,7 @@ func (m *BpfRingbufMaps) Close() error {
 //
 // It can be passed to LoadBpfRingbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfRingbufVariables struct {
-	Unused *ebpf.Variable `ebpf:"unused"`
+	UnusedOpenat *ebpf.Variable `ebpf:"unused_openat"`
 }
 
 // BpfRingbufPrograms contains all programs after they have been loaded into the kernel.
