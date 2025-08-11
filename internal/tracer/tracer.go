@@ -2,13 +2,16 @@ package tracer
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
 	"runtime"
+	"time"
 
 	"github.com/akshatagarwl/pgtracer/internal/bpf"
+	"github.com/akshatagarwl/pgtracer/internal/uprobe"
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/features"
 	"github.com/cilium/ebpf/link"
@@ -58,13 +61,14 @@ type BpfObjects interface {
 }
 
 type Tracer struct {
-	useRingBuf bool
-	link       link.Link
-	reader     EventReader
-	objs       BpfObjects
+	useRingBuf    bool
+	link          link.Link
+	reader        EventReader
+	objs          BpfObjects
+	uprobeManager *uprobe.Manager
 }
 
-func New(usePerfBuf bool) (*Tracer, error) {
+func New(usePerfBuf bool, procPath string, cleanupInterval time.Duration) (*Tracer, error) {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		return nil, fmt.Errorf("remove memlock: %w", err)
 	}
@@ -84,7 +88,11 @@ func New(usePerfBuf bool) (*Tracer, error) {
 		"kernel_supports_ring_buf", kernelSupportsRingBuf,
 		"user_requested_perf_buf", usePerfBuf)
 
-	t := &Tracer{useRingBuf: useRingBuf}
+	t := &Tracer{
+		useRingBuf: useRingBuf,
+	}
+
+	var probeSpecs []uprobe.ProbeSpec
 
 	if useRingBuf {
 		ringObjs := &bpf.BpfRingbufObjects{}
@@ -92,6 +100,21 @@ func New(usePerfBuf bool) (*Tracer, error) {
 			return nil, fmt.Errorf("load ringbuf objects: %w", err)
 		}
 		t.objs = ringObjs
+
+		probeSpecs = []uprobe.ProbeSpec{
+			{
+				Name:    "PQsendQuery_uprobe",
+				Symbol:  "PQsendQuery",
+				Type:    uprobe.Uprobe,
+				Program: ringObjs.TracePqsendquery,
+			},
+			{
+				Name:    "PQsendQuery_uretprobe",
+				Symbol:  "PQsendQuery",
+				Type:    uprobe.Uretprobe,
+				Program: ringObjs.TracePqsendqueryRet,
+			},
+		}
 
 		l, err := link.Kprobe("do_dentry_open", ringObjs.KprobeFileOpen, nil)
 		if err != nil {
@@ -114,6 +137,21 @@ func New(usePerfBuf bool) (*Tracer, error) {
 		}
 		t.objs = perfObjs
 
+		probeSpecs = []uprobe.ProbeSpec{
+			{
+				Name:    "PQsendQuery_uprobe",
+				Symbol:  "PQsendQuery",
+				Type:    uprobe.Uprobe,
+				Program: perfObjs.TracePqsendquery,
+			},
+			{
+				Name:    "PQsendQuery_uretprobe",
+				Symbol:  "PQsendQuery",
+				Type:    uprobe.Uretprobe,
+				Program: perfObjs.TracePqsendqueryRet,
+			},
+		}
+
 		l, err := link.Kprobe("do_dentry_open", perfObjs.KprobeFileOpen, nil)
 		if err != nil {
 			perfObjs.Close()
@@ -129,6 +167,13 @@ func New(usePerfBuf bool) (*Tracer, error) {
 		}
 		t.reader = &perfBufReader{rd}
 	}
+
+	uprobeManager, err := uprobe.NewManager(procPath, cleanupInterval, probeSpecs)
+	if err != nil {
+		t.Close()
+		return nil, fmt.Errorf("create uprobe manager: %w", err)
+	}
+	t.uprobeManager = uprobeManager
 
 	return t, nil
 }
@@ -169,13 +214,45 @@ func (t *Tracer) Run() error {
 				"library", libName,
 			)
 
+			if err := t.uprobeManager.HandleLibraryLoad(int(event.Header.Pid), libName); err != nil {
+				slog.Debug("uprobe attachment skipped",
+					"pid", event.Header.Pid,
+					"library", libName,
+					"reason", err)
+			}
+
+		case bpf.BpfEventTypeEVENT_TYPE_POSTGRES_QUERY:
+			var event bpf.BpfPostgresQueryEvent
+			if err := binary.Read(bytes.NewBuffer(rawSample), binary.LittleEndian, &event); err != nil {
+				slog.Error("parsing postgres query event", "error", err)
+				continue
+			}
+			comm := unix.ByteSliceToString(event.Header.Comm[:])
+			query := unix.ByteSliceToString(event.Query[:])
+			slog.Info("postgres query",
+				"pid", event.Header.Pid,
+				"tgid", event.Header.Tgid,
+				"comm", comm,
+				"conn", fmt.Sprintf("0x%x", event.ConnPtr),
+				"query", query,
+			)
+
 		default:
 			slog.Warn("unknown event type", "type", eventType)
 		}
 	}
 }
 
+func (t *Tracer) StartCleanupService(ctx context.Context) {
+	if t.uprobeManager != nil {
+		t.uprobeManager.StartCleanupService(ctx)
+	}
+}
+
 func (t *Tracer) Close() error {
+	if t.uprobeManager != nil {
+		t.uprobeManager.Close()
+	}
 	if t.reader != nil {
 		t.reader.Close()
 	}

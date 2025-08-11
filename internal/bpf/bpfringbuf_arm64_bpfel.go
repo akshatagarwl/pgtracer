@@ -54,14 +54,17 @@ type BpfRingbufSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfRingbufProgramSpecs struct {
-	KprobeFileOpen *ebpf.ProgramSpec `ebpf:"kprobe_file_open"`
+	KprobeFileOpen      *ebpf.ProgramSpec `ebpf:"kprobe_file_open"`
+	TracePqsendquery    *ebpf.ProgramSpec `ebpf:"trace_pqsendquery"`
+	TracePqsendqueryRet *ebpf.ProgramSpec `ebpf:"trace_pqsendquery_ret"`
 }
 
 // BpfRingbufMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfRingbufMapSpecs struct {
-	Events *ebpf.MapSpec `ebpf:"events"`
+	ActivePgQueries *ebpf.MapSpec `ebpf:"active_pg_queries"`
+	Events          *ebpf.MapSpec `ebpf:"events"`
 }
 
 // BpfRingbufVariableSpecs contains global variables before they are loaded into the kernel.
@@ -69,6 +72,7 @@ type BpfRingbufMapSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfRingbufVariableSpecs struct {
 	UnusedLibrary *ebpf.VariableSpec `ebpf:"unused_library"`
+	UnusedQuery   *ebpf.VariableSpec `ebpf:"unused_query"`
 }
 
 // BpfRingbufObjects contains all objects after they have been loaded into the kernel.
@@ -91,11 +95,13 @@ func (o *BpfRingbufObjects) Close() error {
 //
 // It can be passed to LoadBpfRingbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfRingbufMaps struct {
-	Events *ebpf.Map `ebpf:"events"`
+	ActivePgQueries *ebpf.Map `ebpf:"active_pg_queries"`
+	Events          *ebpf.Map `ebpf:"events"`
 }
 
 func (m *BpfRingbufMaps) Close() error {
 	return _BpfRingbufClose(
+		m.ActivePgQueries,
 		m.Events,
 	)
 }
@@ -105,18 +111,23 @@ func (m *BpfRingbufMaps) Close() error {
 // It can be passed to LoadBpfRingbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfRingbufVariables struct {
 	UnusedLibrary *ebpf.Variable `ebpf:"unused_library"`
+	UnusedQuery   *ebpf.Variable `ebpf:"unused_query"`
 }
 
 // BpfRingbufPrograms contains all programs after they have been loaded into the kernel.
 //
 // It can be passed to LoadBpfRingbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfRingbufPrograms struct {
-	KprobeFileOpen *ebpf.Program `ebpf:"kprobe_file_open"`
+	KprobeFileOpen      *ebpf.Program `ebpf:"kprobe_file_open"`
+	TracePqsendquery    *ebpf.Program `ebpf:"trace_pqsendquery"`
+	TracePqsendqueryRet *ebpf.Program `ebpf:"trace_pqsendquery_ret"`
 }
 
 func (p *BpfRingbufPrograms) Close() error {
 	return _BpfRingbufClose(
 		p.KprobeFileOpen,
+		p.TracePqsendquery,
+		p.TracePqsendqueryRet,
 	)
 }
 

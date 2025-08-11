@@ -1,11 +1,15 @@
 package config
 
 import (
+	"time"
+
 	"github.com/caarlos0/env/v11"
 )
 
 type Config struct {
-	UsePerfBuf bool `env:"PGTRACER_USE_PERFBUF" envDefault:"false"`
+	UsePerfBuf      bool          `env:"PGTRACER_USE_PERFBUF" envDefault:"false"`
+	ProcFSPath      string        `env:"PGTRACER_PROCFS_PATH" envDefault:"/proc"`
+	CleanupInterval time.Duration `env:"PGTRACER_CLEANUP_INTERVAL" envDefault:"5m"`
 }
 
 func Load() (*Config, error) {

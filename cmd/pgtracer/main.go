@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -24,12 +25,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	t, err := tracer.New(cfg.UsePerfBuf)
+	t, err := tracer.New(cfg.UsePerfBuf, cfg.ProcFSPath, cfg.CleanupInterval)
 	if err != nil {
 		slog.Error("failed to create tracer", "error", err)
 		os.Exit(1)
 	}
 	defer t.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go t.StartCleanupService(ctx)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
@@ -37,6 +43,7 @@ func main() {
 	go func() {
 		<-sig
 		slog.Info("received signal, shutting down")
+		cancel()
 		t.Close()
 		os.Exit(0)
 	}()

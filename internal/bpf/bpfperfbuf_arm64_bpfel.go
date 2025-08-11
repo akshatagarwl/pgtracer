@@ -54,15 +54,19 @@ type BpfPerfbufSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfPerfbufProgramSpecs struct {
-	KprobeFileOpen *ebpf.ProgramSpec `ebpf:"kprobe_file_open"`
+	KprobeFileOpen      *ebpf.ProgramSpec `ebpf:"kprobe_file_open"`
+	TracePqsendquery    *ebpf.ProgramSpec `ebpf:"trace_pqsendquery"`
+	TracePqsendqueryRet *ebpf.ProgramSpec `ebpf:"trace_pqsendquery_ret"`
 }
 
 // BpfPerfbufMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfPerfbufMapSpecs struct {
-	Events      *ebpf.MapSpec `ebpf:"events"`
-	LibraryHeap *ebpf.MapSpec `ebpf:"library_heap"`
+	ActivePgQueries *ebpf.MapSpec `ebpf:"active_pg_queries"`
+	Events          *ebpf.MapSpec `ebpf:"events"`
+	LibraryHeap     *ebpf.MapSpec `ebpf:"library_heap"`
+	QueryHeap       *ebpf.MapSpec `ebpf:"query_heap"`
 }
 
 // BpfPerfbufVariableSpecs contains global variables before they are loaded into the kernel.
@@ -70,6 +74,7 @@ type BpfPerfbufMapSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfPerfbufVariableSpecs struct {
 	UnusedLibrary *ebpf.VariableSpec `ebpf:"unused_library"`
+	UnusedQuery   *ebpf.VariableSpec `ebpf:"unused_query"`
 }
 
 // BpfPerfbufObjects contains all objects after they have been loaded into the kernel.
@@ -92,14 +97,18 @@ func (o *BpfPerfbufObjects) Close() error {
 //
 // It can be passed to LoadBpfPerfbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfPerfbufMaps struct {
-	Events      *ebpf.Map `ebpf:"events"`
-	LibraryHeap *ebpf.Map `ebpf:"library_heap"`
+	ActivePgQueries *ebpf.Map `ebpf:"active_pg_queries"`
+	Events          *ebpf.Map `ebpf:"events"`
+	LibraryHeap     *ebpf.Map `ebpf:"library_heap"`
+	QueryHeap       *ebpf.Map `ebpf:"query_heap"`
 }
 
 func (m *BpfPerfbufMaps) Close() error {
 	return _BpfPerfbufClose(
+		m.ActivePgQueries,
 		m.Events,
 		m.LibraryHeap,
+		m.QueryHeap,
 	)
 }
 
@@ -108,18 +117,23 @@ func (m *BpfPerfbufMaps) Close() error {
 // It can be passed to LoadBpfPerfbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfPerfbufVariables struct {
 	UnusedLibrary *ebpf.Variable `ebpf:"unused_library"`
+	UnusedQuery   *ebpf.Variable `ebpf:"unused_query"`
 }
 
 // BpfPerfbufPrograms contains all programs after they have been loaded into the kernel.
 //
 // It can be passed to LoadBpfPerfbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfPerfbufPrograms struct {
-	KprobeFileOpen *ebpf.Program `ebpf:"kprobe_file_open"`
+	KprobeFileOpen      *ebpf.Program `ebpf:"kprobe_file_open"`
+	TracePqsendquery    *ebpf.Program `ebpf:"trace_pqsendquery"`
+	TracePqsendqueryRet *ebpf.Program `ebpf:"trace_pqsendquery_ret"`
 }
 
 func (p *BpfPerfbufPrograms) Close() error {
 	return _BpfPerfbufClose(
 		p.KprobeFileOpen,
+		p.TracePqsendquery,
+		p.TracePqsendqueryRet,
 	)
 }
 

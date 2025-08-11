@@ -16,13 +16,27 @@ import (
 type BpfEventType uint32
 
 const (
-	BpfEventTypeEVENT_TYPE_LIBRARY_LOAD BpfEventType = 1
+	BpfEventTypeEVENT_TYPE_LIBRARY_LOAD   BpfEventType = 1
+	BpfEventTypeEVENT_TYPE_POSTGRES_QUERY BpfEventType = 2
 )
 
 type BpfLibraryLoadEvent struct {
 	_           structs.HostLayout
 	Header      BpfTraceEventHeader
 	LibraryName [64]uint8
+}
+
+type BpfPgQueryArgs struct {
+	_     structs.HostLayout
+	Conn  uint64
+	Query uint64
+}
+
+type BpfPostgresQueryEvent struct {
+	_       structs.HostLayout
+	Header  BpfTraceEventHeader
+	ConnPtr uint64
+	Query   [512]uint8
 }
 
 type BpfTraceEventHeader struct {
@@ -77,15 +91,19 @@ type BpfSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfProgramSpecs struct {
-	KprobeFileOpen *ebpf.ProgramSpec `ebpf:"kprobe_file_open"`
+	KprobeFileOpen      *ebpf.ProgramSpec `ebpf:"kprobe_file_open"`
+	TracePqsendquery    *ebpf.ProgramSpec `ebpf:"trace_pqsendquery"`
+	TracePqsendqueryRet *ebpf.ProgramSpec `ebpf:"trace_pqsendquery_ret"`
 }
 
 // BpfMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfMapSpecs struct {
-	Events      *ebpf.MapSpec `ebpf:"events"`
-	LibraryHeap *ebpf.MapSpec `ebpf:"library_heap"`
+	ActivePgQueries *ebpf.MapSpec `ebpf:"active_pg_queries"`
+	Events          *ebpf.MapSpec `ebpf:"events"`
+	LibraryHeap     *ebpf.MapSpec `ebpf:"library_heap"`
+	QueryHeap       *ebpf.MapSpec `ebpf:"query_heap"`
 }
 
 // BpfVariableSpecs contains global variables before they are loaded into the kernel.
@@ -93,6 +111,7 @@ type BpfMapSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfVariableSpecs struct {
 	UnusedLibrary *ebpf.VariableSpec `ebpf:"unused_library"`
+	UnusedQuery   *ebpf.VariableSpec `ebpf:"unused_query"`
 }
 
 // BpfObjects contains all objects after they have been loaded into the kernel.
@@ -115,14 +134,18 @@ func (o *BpfObjects) Close() error {
 //
 // It can be passed to LoadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfMaps struct {
-	Events      *ebpf.Map `ebpf:"events"`
-	LibraryHeap *ebpf.Map `ebpf:"library_heap"`
+	ActivePgQueries *ebpf.Map `ebpf:"active_pg_queries"`
+	Events          *ebpf.Map `ebpf:"events"`
+	LibraryHeap     *ebpf.Map `ebpf:"library_heap"`
+	QueryHeap       *ebpf.Map `ebpf:"query_heap"`
 }
 
 func (m *BpfMaps) Close() error {
 	return _BpfClose(
+		m.ActivePgQueries,
 		m.Events,
 		m.LibraryHeap,
+		m.QueryHeap,
 	)
 }
 
@@ -131,18 +154,23 @@ func (m *BpfMaps) Close() error {
 // It can be passed to LoadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfVariables struct {
 	UnusedLibrary *ebpf.Variable `ebpf:"unused_library"`
+	UnusedQuery   *ebpf.Variable `ebpf:"unused_query"`
 }
 
 // BpfPrograms contains all programs after they have been loaded into the kernel.
 //
 // It can be passed to LoadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfPrograms struct {
-	KprobeFileOpen *ebpf.Program `ebpf:"kprobe_file_open"`
+	KprobeFileOpen      *ebpf.Program `ebpf:"kprobe_file_open"`
+	TracePqsendquery    *ebpf.Program `ebpf:"trace_pqsendquery"`
+	TracePqsendqueryRet *ebpf.Program `ebpf:"trace_pqsendquery_ret"`
 }
 
 func (p *BpfPrograms) Close() error {
 	return _BpfClose(
 		p.KprobeFileOpen,
+		p.TracePqsendquery,
+		p.TracePqsendqueryRet,
 	)
 }
 

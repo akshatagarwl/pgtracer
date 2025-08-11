@@ -42,3 +42,22 @@ static __always_inline void fill_event_header(struct trace_event_header *h,
 
   bpf_get_current_comm(&h->comm, sizeof(h->comm));
 }
+
+static __always_inline struct postgres_query_event *reserve_query_event(void) {
+#ifdef USE_RING_BUF
+  return bpf_ringbuf_reserve(&events, sizeof(struct postgres_query_event), 0);
+#else
+  u32 zero = 0;
+  return bpf_map_lookup_elem(&query_heap, &zero);
+#endif
+}
+
+static __always_inline void send_query_event(void *ctx,
+                                             struct postgres_query_event *e) {
+#ifdef USE_RING_BUF
+  bpf_ringbuf_submit(e, 0);
+#else
+  bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, e,
+                        sizeof(struct postgres_query_event));
+#endif
+}
