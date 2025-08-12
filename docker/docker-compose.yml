@@ -1,0 +1,31 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: pgtracer-postgres
+    environment:
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass
+      POSTGRES_DB: testdb
+    networks:
+      - pgtracer-net
+
+  pgtracer:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: pgtracer
+    privileged: true
+    cap_add:
+      - SYS_ADMIN
+      - SYS_PTRACE
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys/kernel/debug:/sys/kernel/debug:rw
+      - /sys/kernel/tracing:/sys/kernel/tracing:rw
+    environment:
+      PGTRACER_PROCFS_PATH: /host/proc
+    command: ["/app/pgtracer"]
+
+networks:
+  pgtracer-net:
+    driver: bridge
