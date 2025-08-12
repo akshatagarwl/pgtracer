@@ -87,11 +87,6 @@ func (m *Manager) HandleExec(pid int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, exists := m.attachments[pid]; exists {
-		slog.Debug("pid already has uprobe attached", "pid", pid)
-		return nil
-	}
-
 	exePath := fmt.Sprintf("%s/%d/exe", m.procPath, pid)
 	slog.Debug("handling exec event", "pid", pid, "path", exePath)
 
@@ -171,12 +166,12 @@ func (m *Manager) HandleExec(pid int) error {
 	}
 
 	if symbolOffset > 0 {
-		slog.Info("detected stripped Go binary with lib/pq",
+		slog.Debug("detected stripped Go binary with lib/pq",
 			"pid", pid,
 			"path", exePath,
 			"offset", fmt.Sprintf("0x%x", symbolOffset))
 	} else {
-		slog.Info("detected Go binary with lib/pq", "pid", pid, "path", exePath)
+		slog.Debug("detected Go binary with lib/pq", "pid", pid, "path", exePath)
 	}
 
 	library := "lib/pq"
@@ -214,7 +209,7 @@ func (m *Manager) HandleExec(pid int) error {
 		}
 
 		if err != nil {
-			slog.Warn("failed to attach uprobe",
+			slog.Debug("failed to attach uprobe",
 				"pid", pid,
 				"path", targetPath,
 				"symbol", symbol,
@@ -240,7 +235,7 @@ func (m *Manager) HandleExec(pid int) error {
 			}
 
 			if err != nil {
-				slog.Warn("failed to attach uretprobe, cleaning up",
+				slog.Debug("failed to attach uretprobe, cleaning up",
 					"pid", pid,
 					"path", targetPath,
 					"symbol", symbol,
@@ -270,7 +265,7 @@ func (m *Manager) HandleExec(pid int) error {
 		AttachedAt: time.Now(),
 	}
 
-	slog.Info("attached probes",
+	slog.Debug("attached probes",
 		"pid", pid,
 		"library", library,
 		"symbol", symbol,
@@ -281,11 +276,6 @@ func (m *Manager) HandleExec(pid int) error {
 func (m *Manager) HandleLibraryLoad(pid int, libraryName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	if _, exists := m.attachments[pid]; exists {
-		slog.Debug("pid already has uprobe attached", "pid", pid)
-		return nil
-	}
 
 	if !strings.HasPrefix(libraryName, "libpq") {
 		return fmt.Errorf("not a libpq library: %s", libraryName)
@@ -301,24 +291,6 @@ func (m *Manager) HandleLibraryLoad(pid int, libraryName string) error {
 		return fmt.Errorf("read maps for pid %d: %w", pid, err)
 	}
 
-	var targetPath string
-	for _, mapping := range maps {
-		if mapping.Pathname == "" {
-			continue
-		}
-
-		basename := filepath.Base(mapping.Pathname)
-		if strings.HasPrefix(basename, "libpq") {
-			targetPath = mapping.Pathname
-			slog.Info("found native libpq", "pid", pid, "path", targetPath)
-			break
-		}
-	}
-
-	if targetPath == "" {
-		return fmt.Errorf("libpq not found in pid %d maps", pid)
-	}
-
 	library := "libpq"
 	symbol := "PQsendQuery"
 
@@ -332,52 +304,62 @@ func (m *Manager) HandleLibraryLoad(pid int, libraryName string) error {
 		return fmt.Errorf("no probes registered for symbol %s in library %s", symbol, library)
 	}
 
-	ex, err := link.OpenExecutable(targetPath)
-	if err != nil {
-		return fmt.Errorf("open executable %s: %w", targetPath, err)
-	}
-
 	var links []link.Link
-
-	if programs.Uprobe != nil {
-		l, err := ex.Uprobe(symbol, programs.Uprobe, nil)
-		if err != nil {
-			slog.Warn("failed to attach uprobe",
-				"pid", pid,
-				"path", targetPath,
-				"symbol", symbol,
-				"error", err)
-			return fmt.Errorf("failed to attach uprobe: %w", err)
+	for _, mapping := range maps {
+		if mapping.Pathname == "" {
+			continue
 		}
-		links = append(links, l)
-		slog.Debug("attached uprobe",
-			"pid", pid,
-			"path", targetPath,
-			"symbol", symbol)
 
-		if programs.Uretprobe != nil {
-			l, err := ex.Uretprobe(symbol, programs.Uretprobe, nil)
+		basename := filepath.Base(mapping.Pathname)
+		if strings.HasPrefix(basename, "libpq") {
+			targetPath := fmt.Sprintf("%s/%d/map_files/%x-%x", m.procPath, pid, mapping.StartAddr, mapping.EndAddr)
+			slog.Debug("found native libpq", "pid", pid, "path", targetPath)
+
+			ex, err := link.OpenExecutable(targetPath)
 			if err != nil {
-				slog.Warn("failed to attach uretprobe, cleaning up",
+				slog.Debug("failed to open executable", "target_path", targetPath, "error", err)
+				continue
+			}
+
+			if programs.Uprobe != nil {
+				l, err := ex.Uprobe(symbol, programs.Uprobe, nil)
+				if err != nil {
+					slog.Debug("failed to attach uprobe",
+						"pid", pid,
+						"path", targetPath,
+						"symbol", symbol,
+						"error", err)
+					slog.Debug("failed to attach uprobe", "error", err)
+					continue
+				}
+				links = append(links, l)
+				slog.Debug("attached uprobe",
 					"pid", pid,
 					"path", targetPath,
-					"symbol", symbol,
-					"error", err)
-				for _, link := range links {
-					link.Close()
-				}
-				return fmt.Errorf("failed to attach uretprobe: %w", err)
-			}
-			links = append(links, l)
-			slog.Debug("attached uretprobe",
-				"pid", pid,
-				"path", targetPath,
-				"symbol", symbol)
-		}
-	}
+					"symbol", symbol)
 
-	if len(links) == 0 {
-		return fmt.Errorf("no probes attached for pid %d", pid)
+				if programs.Uretprobe != nil {
+					l, err := ex.Uretprobe(symbol, programs.Uretprobe, nil)
+					if err != nil {
+						slog.Debug("failed to attach uretprobe, cleaning up",
+							"pid", pid,
+							"path", targetPath,
+							"symbol", symbol,
+							"error", err)
+						for _, link := range links {
+							link.Close()
+						}
+						slog.Debug("failed to attach uretprobe", "error", err)
+						continue
+					}
+					links = append(links, l)
+					slog.Debug("attached uretprobe",
+						"pid", pid,
+						"path", targetPath,
+						"symbol", symbol)
+				}
+			}
+		}
 	}
 
 	m.attachments[pid] = &ProcessAttachment{
@@ -386,11 +368,16 @@ func (m *Manager) HandleLibraryLoad(pid int, libraryName string) error {
 		AttachedAt: time.Now(),
 	}
 
-	slog.Info("attached libpq probes",
+	if len(links) == 0 {
+		slog.Debug("no probes attached for pid", "pid", pid)
+	}
+
+	slog.Debug("attached libpq probes",
 		"pid", pid,
 		"library", library,
 		"symbol", symbol,
 		"count", len(links))
+
 	return nil
 }
 
@@ -428,7 +415,7 @@ func (m *Manager) performCleanup() {
 		if !m.processExists(pid) {
 			for _, link := range attachment.Links {
 				if err := link.Close(); err != nil {
-					slog.Error("failed to close probe",
+					slog.Debug("failed to close probe",
 						"pid", pid,
 						"error", err)
 				}

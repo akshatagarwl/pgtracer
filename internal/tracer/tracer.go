@@ -177,15 +177,16 @@ func (t *Tracer) attachKernelProbes(programs *BpfPrograms) error {
 		return fmt.Errorf("attach kprobe: %w", err)
 	}
 	t.links = append(t.links, kprobeLink)
-	slog.Info("attached kprobe for do_dentry_open")
+	slog.Info("attached kprobe for do_dentry_open", "link", kprobeLink)
 
 	execLink, err := link.Tracepoint("syscalls", "sys_exit_execve", programs.TraceExecveExit, nil)
 	if err != nil {
 		return fmt.Errorf("attach execve tracepoint: %w", err)
 	}
 	t.links = append(t.links, execLink)
-	slog.Info("attached execve tracepoint")
+	slog.Info("attached execve tracepoint", "link", execLink)
 
+	slog.Info("kernel probes attached successfully", "total_links", len(t.links))
 	return nil
 }
 
@@ -226,8 +227,6 @@ func (t *Tracer) Run() error {
 
 		eventType := binary.LittleEndian.Uint32(rawSample[:4])
 
-		slog.Debug("received event", "type", eventType)
-
 		switch bpf.BpfEventType(eventType) {
 		case bpf.BpfEventTypeEVENT_TYPE_LIBRARY_LOAD:
 			t.handleLibraryLoadEvent(rawSample)
@@ -255,14 +254,14 @@ func (t *Tracer) handleLibraryLoadEvent(rawSample []byte) {
 	}
 	comm := unix.ByteSliceToString(event.Header.Comm[:])
 	libName := unix.ByteSliceToString(event.LibraryName[:])
-	slog.Info("library loaded",
+	slog.Debug("library loaded",
 		"pid", event.Header.Pid,
 		"tgid", event.Header.Tgid,
 		"comm", comm,
 		"library", libName,
 	)
 
-	if err := t.uprobeManager.HandleLibraryLoad(int(event.Header.Pid), libName); err != nil {
+	if err := t.uprobeManager.HandleLibraryLoad(int(event.Header.Tgid), libName); err != nil {
 		slog.Debug("uprobe attachment skipped",
 			"pid", event.Header.Pid,
 			"library", libName,
@@ -319,7 +318,7 @@ func (t *Tracer) handleExecEvent(rawSample []byte) {
 		"comm", comm,
 	)
 
-	if err := t.uprobeManager.HandleExec(int(event.Header.Pid)); err != nil {
+	if err := t.uprobeManager.HandleExec(int(event.Header.Tgid)); err != nil {
 		slog.Debug("exec handler skipped",
 			"pid", event.Header.Pid,
 			"comm", comm,
