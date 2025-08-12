@@ -79,6 +79,8 @@ type Tracer struct {
 }
 
 func New(usePerfBuf bool, procPath string, cleanupInterval time.Duration) (*Tracer, error) {
+	slog.Info("initializing tracer")
+
 	if err := rlimit.RemoveMemlock(); err != nil {
 		return nil, fmt.Errorf("remove memlock: %w", err)
 	}
@@ -168,17 +170,21 @@ func (t *Tracer) loadBpfObjects(useRingBuf bool) (*BpfPrograms, error) {
 }
 
 func (t *Tracer) attachKernelProbes(programs *BpfPrograms) error {
+	slog.Info("attaching kernel probes")
+
 	kprobeLink, err := link.Kprobe("do_dentry_open", programs.KprobeFileOpen, nil)
 	if err != nil {
 		return fmt.Errorf("attach kprobe: %w", err)
 	}
 	t.links = append(t.links, kprobeLink)
+	slog.Info("attached kprobe for do_dentry_open")
 
 	execLink, err := link.Tracepoint("syscalls", "sys_exit_execve", programs.TraceExecveExit, nil)
 	if err != nil {
 		return fmt.Errorf("attach execve tracepoint: %w", err)
 	}
 	t.links = append(t.links, execLink)
+	slog.Info("attached execve tracepoint")
 
 	return nil
 }
@@ -219,6 +225,8 @@ func (t *Tracer) Run() error {
 		}
 
 		eventType := binary.LittleEndian.Uint32(rawSample[:4])
+
+		slog.Debug("received event", "type", eventType)
 
 		switch bpf.BpfEventType(eventType) {
 		case bpf.BpfEventTypeEVENT_TYPE_LIBRARY_LOAD:
@@ -305,7 +313,7 @@ func (t *Tracer) handleExecEvent(rawSample []byte) {
 		return
 	}
 	comm := unix.ByteSliceToString(event.Header.Comm[:])
-	slog.Debug("process executed",
+	slog.Debug("exec event received",
 		"pid", event.Header.Pid,
 		"tgid", event.Header.Tgid,
 		"comm", comm,
@@ -314,6 +322,7 @@ func (t *Tracer) handleExecEvent(rawSample []byte) {
 	if err := t.uprobeManager.HandleExec(int(event.Header.Pid)); err != nil {
 		slog.Debug("exec handler skipped",
 			"pid", event.Header.Pid,
+			"comm", comm,
 			"reason", err)
 	}
 }
