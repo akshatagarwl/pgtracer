@@ -25,6 +25,20 @@ struct {
   __type(key, u32);
   __type(value, struct postgres_query_event);
 } query_heap SEC(".maps");
+
+struct {
+  __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+  __uint(max_entries, 1);
+  __type(key, u32);
+  __type(value, struct go_postgres_query_event);
+} go_query_heap SEC(".maps");
+
+struct {
+  __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+  __uint(max_entries, 1);
+  __type(key, u32);
+  __type(value, struct exec_event);
+} exec_heap SEC(".maps");
 #endif
 
 struct {
@@ -33,3 +47,10 @@ struct {
   __type(key, u64);
   __type(value, struct pg_query_args);
 } active_pg_queries SEC(".maps");
+
+struct {
+  __uint(type, BPF_MAP_TYPE_LRU_HASH);
+  __uint(max_entries, 1024);
+  __type(key, u64);
+  __type(value, struct go_query_args);
+} active_go_queries SEC(".maps");

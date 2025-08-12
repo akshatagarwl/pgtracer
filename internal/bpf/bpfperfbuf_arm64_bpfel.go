@@ -55,6 +55,9 @@ type BpfPerfbufSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfPerfbufProgramSpecs struct {
 	KprobeFileOpen      *ebpf.ProgramSpec `ebpf:"kprobe_file_open"`
+	TraceExecveExit     *ebpf.ProgramSpec `ebpf:"trace_execve_exit"`
+	TraceGoPqQuery      *ebpf.ProgramSpec `ebpf:"trace_go_pq_query"`
+	TraceGoPqQueryRet   *ebpf.ProgramSpec `ebpf:"trace_go_pq_query_ret"`
 	TracePqsendquery    *ebpf.ProgramSpec `ebpf:"trace_pqsendquery"`
 	TracePqsendqueryRet *ebpf.ProgramSpec `ebpf:"trace_pqsendquery_ret"`
 }
@@ -63,8 +66,11 @@ type BpfPerfbufProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfPerfbufMapSpecs struct {
+	ActiveGoQueries *ebpf.MapSpec `ebpf:"active_go_queries"`
 	ActivePgQueries *ebpf.MapSpec `ebpf:"active_pg_queries"`
 	Events          *ebpf.MapSpec `ebpf:"events"`
+	ExecHeap        *ebpf.MapSpec `ebpf:"exec_heap"`
+	GoQueryHeap     *ebpf.MapSpec `ebpf:"go_query_heap"`
 	LibraryHeap     *ebpf.MapSpec `ebpf:"library_heap"`
 	QueryHeap       *ebpf.MapSpec `ebpf:"query_heap"`
 }
@@ -73,6 +79,7 @@ type BpfPerfbufMapSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfPerfbufVariableSpecs struct {
+	UnusedGoQuery *ebpf.VariableSpec `ebpf:"unused_go_query"`
 	UnusedLibrary *ebpf.VariableSpec `ebpf:"unused_library"`
 	UnusedQuery   *ebpf.VariableSpec `ebpf:"unused_query"`
 }
@@ -97,16 +104,22 @@ func (o *BpfPerfbufObjects) Close() error {
 //
 // It can be passed to LoadBpfPerfbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfPerfbufMaps struct {
+	ActiveGoQueries *ebpf.Map `ebpf:"active_go_queries"`
 	ActivePgQueries *ebpf.Map `ebpf:"active_pg_queries"`
 	Events          *ebpf.Map `ebpf:"events"`
+	ExecHeap        *ebpf.Map `ebpf:"exec_heap"`
+	GoQueryHeap     *ebpf.Map `ebpf:"go_query_heap"`
 	LibraryHeap     *ebpf.Map `ebpf:"library_heap"`
 	QueryHeap       *ebpf.Map `ebpf:"query_heap"`
 }
 
 func (m *BpfPerfbufMaps) Close() error {
 	return _BpfPerfbufClose(
+		m.ActiveGoQueries,
 		m.ActivePgQueries,
 		m.Events,
+		m.ExecHeap,
+		m.GoQueryHeap,
 		m.LibraryHeap,
 		m.QueryHeap,
 	)
@@ -116,6 +129,7 @@ func (m *BpfPerfbufMaps) Close() error {
 //
 // It can be passed to LoadBpfPerfbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfPerfbufVariables struct {
+	UnusedGoQuery *ebpf.Variable `ebpf:"unused_go_query"`
 	UnusedLibrary *ebpf.Variable `ebpf:"unused_library"`
 	UnusedQuery   *ebpf.Variable `ebpf:"unused_query"`
 }
@@ -125,6 +139,9 @@ type BpfPerfbufVariables struct {
 // It can be passed to LoadBpfPerfbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfPerfbufPrograms struct {
 	KprobeFileOpen      *ebpf.Program `ebpf:"kprobe_file_open"`
+	TraceExecveExit     *ebpf.Program `ebpf:"trace_execve_exit"`
+	TraceGoPqQuery      *ebpf.Program `ebpf:"trace_go_pq_query"`
+	TraceGoPqQueryRet   *ebpf.Program `ebpf:"trace_go_pq_query_ret"`
 	TracePqsendquery    *ebpf.Program `ebpf:"trace_pqsendquery"`
 	TracePqsendqueryRet *ebpf.Program `ebpf:"trace_pqsendquery_ret"`
 }
@@ -132,6 +149,9 @@ type BpfPerfbufPrograms struct {
 func (p *BpfPerfbufPrograms) Close() error {
 	return _BpfPerfbufClose(
 		p.KprobeFileOpen,
+		p.TraceExecveExit,
+		p.TraceGoPqQuery,
+		p.TraceGoPqQueryRet,
 		p.TracePqsendquery,
 		p.TracePqsendqueryRet,
 	)

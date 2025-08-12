@@ -35,6 +35,7 @@ int BPF_KPROBE(kprobe_file_open, struct file *file) {
     if (lib_event) {
       fill_event_header(&lib_event->header, EVENT_TYPE_LIBRARY_LOAD);
       __builtin_memcpy(lib_event->library_name, key, 64);
+      lib_event->lib_type = LIBRARY_TYPE_LIBPQ;
       send_library_event(ctx, lib_event);
     }
   }
@@ -78,6 +79,71 @@ int BPF_URETPROBE(trace_pqsendquery_ret, int ret) {
   }
 
   bpf_map_delete_elem(&active_pg_queries, &pid_tgid);
+
+  return 0;
+}
+
+SEC("uprobe/go_pq_query")
+int BPF_UPROBE(trace_go_pq_query) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+
+  struct go_query_args args = {
+      .conn_ptr = GO_PARAM1(ctx),
+      .query_ptr = GO_PARAM2(ctx),
+      .query_len = (u32)GO_PARAM3(ctx),
+  };
+
+  bpf_map_update_elem(&active_go_queries, &pid_tgid, &args, BPF_ANY);
+
+  return 0;
+}
+
+SEC("uretprobe/go_pq_query")
+int BPF_URETPROBE(trace_go_pq_query_ret) {
+  u64 pid_tgid = bpf_get_current_pid_tgid();
+
+  struct go_query_args *args =
+      bpf_map_lookup_elem(&active_go_queries, &pid_tgid);
+  if (!args) return 0;
+
+  struct go_postgres_query_event *event = reserve_go_query_event();
+  if (!event) {
+    bpf_map_delete_elem(&active_go_queries, &pid_tgid);
+    return 0;
+  }
+
+  fill_event_header(&event->header, EVENT_TYPE_GO_POSTGRES_QUERY);
+
+  event->conn_ptr = args->conn_ptr;
+  event->query_len = args->query_len;
+
+  u32 max_len = args->query_len < sizeof(event->query) - 1
+                    ? args->query_len
+                    : sizeof(event->query) - 1;
+
+  bpf_probe_read_user_str(event->query, max_len + 1, (void *)args->query_ptr);
+
+  send_go_query_event(ctx, event);
+
+  bpf_map_delete_elem(&active_go_queries, &pid_tgid);
+
+  return 0;
+}
+
+SEC("tracepoint/syscalls/sys_exit_execve")
+int BPF_PROG(trace_execve_exit, u64 pad, int __syscall_nr, long ret) {
+  if (ret != 0) {
+    return 0;
+  }
+
+  struct exec_event *event = reserve_exec_event();
+  if (!event) {
+    return 0;
+  }
+
+  fill_event_header(&event->header, EVENT_TYPE_EXEC);
+
+  send_exec_event(ctx, event);
 
   return 0;
 }

@@ -55,6 +55,9 @@ type BpfRingbufSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfRingbufProgramSpecs struct {
 	KprobeFileOpen      *ebpf.ProgramSpec `ebpf:"kprobe_file_open"`
+	TraceExecveExit     *ebpf.ProgramSpec `ebpf:"trace_execve_exit"`
+	TraceGoPqQuery      *ebpf.ProgramSpec `ebpf:"trace_go_pq_query"`
+	TraceGoPqQueryRet   *ebpf.ProgramSpec `ebpf:"trace_go_pq_query_ret"`
 	TracePqsendquery    *ebpf.ProgramSpec `ebpf:"trace_pqsendquery"`
 	TracePqsendqueryRet *ebpf.ProgramSpec `ebpf:"trace_pqsendquery_ret"`
 }
@@ -63,6 +66,7 @@ type BpfRingbufProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfRingbufMapSpecs struct {
+	ActiveGoQueries *ebpf.MapSpec `ebpf:"active_go_queries"`
 	ActivePgQueries *ebpf.MapSpec `ebpf:"active_pg_queries"`
 	Events          *ebpf.MapSpec `ebpf:"events"`
 }
@@ -71,6 +75,7 @@ type BpfRingbufMapSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfRingbufVariableSpecs struct {
+	UnusedGoQuery *ebpf.VariableSpec `ebpf:"unused_go_query"`
 	UnusedLibrary *ebpf.VariableSpec `ebpf:"unused_library"`
 	UnusedQuery   *ebpf.VariableSpec `ebpf:"unused_query"`
 }
@@ -95,12 +100,14 @@ func (o *BpfRingbufObjects) Close() error {
 //
 // It can be passed to LoadBpfRingbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfRingbufMaps struct {
+	ActiveGoQueries *ebpf.Map `ebpf:"active_go_queries"`
 	ActivePgQueries *ebpf.Map `ebpf:"active_pg_queries"`
 	Events          *ebpf.Map `ebpf:"events"`
 }
 
 func (m *BpfRingbufMaps) Close() error {
 	return _BpfRingbufClose(
+		m.ActiveGoQueries,
 		m.ActivePgQueries,
 		m.Events,
 	)
@@ -110,6 +117,7 @@ func (m *BpfRingbufMaps) Close() error {
 //
 // It can be passed to LoadBpfRingbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfRingbufVariables struct {
+	UnusedGoQuery *ebpf.Variable `ebpf:"unused_go_query"`
 	UnusedLibrary *ebpf.Variable `ebpf:"unused_library"`
 	UnusedQuery   *ebpf.Variable `ebpf:"unused_query"`
 }
@@ -119,6 +127,9 @@ type BpfRingbufVariables struct {
 // It can be passed to LoadBpfRingbufObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfRingbufPrograms struct {
 	KprobeFileOpen      *ebpf.Program `ebpf:"kprobe_file_open"`
+	TraceExecveExit     *ebpf.Program `ebpf:"trace_execve_exit"`
+	TraceGoPqQuery      *ebpf.Program `ebpf:"trace_go_pq_query"`
+	TraceGoPqQueryRet   *ebpf.Program `ebpf:"trace_go_pq_query_ret"`
 	TracePqsendquery    *ebpf.Program `ebpf:"trace_pqsendquery"`
 	TracePqsendqueryRet *ebpf.Program `ebpf:"trace_pqsendquery_ret"`
 }
@@ -126,6 +137,9 @@ type BpfRingbufPrograms struct {
 func (p *BpfRingbufPrograms) Close() error {
 	return _BpfRingbufClose(
 		p.KprobeFileOpen,
+		p.TraceExecveExit,
+		p.TraceGoPqQuery,
+		p.TraceGoPqQueryRet,
 		p.TracePqsendquery,
 		p.TracePqsendqueryRet,
 	)

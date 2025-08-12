@@ -60,9 +60,19 @@ type BpfObjects interface {
 	Close() error
 }
 
+type BpfPrograms struct {
+	TracePqsendquery    *ebpf.Program
+	TracePqsendqueryRet *ebpf.Program
+	TraceGoPqQuery      *ebpf.Program
+	TraceGoPqQueryRet   *ebpf.Program
+	KprobeFileOpen      *ebpf.Program
+	TraceExecveExit     *ebpf.Program
+	Events              *ebpf.Map
+}
+
 type Tracer struct {
 	useRingBuf    bool
-	link          link.Link
+	links         []link.Link
 	reader        EventReader
 	objs          BpfObjects
 	uprobeManager *uprobe.Manager
@@ -73,102 +83,47 @@ func New(usePerfBuf bool, procPath string, cleanupInterval time.Duration) (*Trac
 		return nil, fmt.Errorf("remove memlock: %w", err)
 	}
 
-	kernelSupportsRingBuf := features.HaveMapType(ebpf.RingBuf) == nil
-
-	useRingBuf := kernelSupportsRingBuf && !usePerfBuf
-
-	if !kernelSupportsRingBuf && !usePerfBuf {
-		slog.Info("ring buffer not supported by kernel, using perf buffer")
-		useRingBuf = false
-	}
+	useRingBuf := !usePerfBuf && features.HaveMapType(ebpf.RingBuf) == nil
 
 	slog.Info("loading ebpf",
 		"architecture", runtime.GOARCH,
-		"use_ring_buffer", useRingBuf,
-		"kernel_supports_ring_buf", kernelSupportsRingBuf,
-		"user_requested_perf_buf", usePerfBuf)
+		"use_ring_buffer", useRingBuf)
 
 	t := &Tracer{
 		useRingBuf: useRingBuf,
 	}
 
-	var probeSpecs []uprobe.ProbeSpec
-
-	if useRingBuf {
-		ringObjs := &bpf.BpfRingbufObjects{}
-		if err := bpf.LoadBpfRingbufObjects(ringObjs, nil); err != nil {
-			return nil, fmt.Errorf("load ringbuf objects: %w", err)
-		}
-		t.objs = ringObjs
-
-		probeSpecs = []uprobe.ProbeSpec{
-			{
-				Name:    "PQsendQuery_uprobe",
-				Symbol:  "PQsendQuery",
-				Type:    uprobe.Uprobe,
-				Program: ringObjs.TracePqsendquery,
-			},
-			{
-				Name:    "PQsendQuery_uretprobe",
-				Symbol:  "PQsendQuery",
-				Type:    uprobe.Uretprobe,
-				Program: ringObjs.TracePqsendqueryRet,
-			},
-		}
-
-		l, err := link.Kprobe("do_dentry_open", ringObjs.KprobeFileOpen, nil)
-		if err != nil {
-			ringObjs.Close()
-			return nil, fmt.Errorf("attach kprobe: %w", err)
-		}
-		t.link = l
-
-		rd, err := ringbuf.NewReader(ringObjs.Events)
-		if err != nil {
-			l.Close()
-			ringObjs.Close()
-			return nil, fmt.Errorf("new ringbuf reader: %w", err)
-		}
-		t.reader = &ringBufReader{rd}
-	} else {
-		perfObjs := &bpf.BpfPerfbufObjects{}
-		if err := bpf.LoadBpfPerfbufObjects(perfObjs, nil); err != nil {
-			return nil, fmt.Errorf("load perfbuf objects: %w", err)
-		}
-		t.objs = perfObjs
-
-		probeSpecs = []uprobe.ProbeSpec{
-			{
-				Name:    "PQsendQuery_uprobe",
-				Symbol:  "PQsendQuery",
-				Type:    uprobe.Uprobe,
-				Program: perfObjs.TracePqsendquery,
-			},
-			{
-				Name:    "PQsendQuery_uretprobe",
-				Symbol:  "PQsendQuery",
-				Type:    uprobe.Uretprobe,
-				Program: perfObjs.TracePqsendqueryRet,
-			},
-		}
-
-		l, err := link.Kprobe("do_dentry_open", perfObjs.KprobeFileOpen, nil)
-		if err != nil {
-			perfObjs.Close()
-			return nil, fmt.Errorf("attach kprobe: %w", err)
-		}
-		t.link = l
-
-		rd, err := perf.NewReader(perfObjs.Events, 4096)
-		if err != nil {
-			l.Close()
-			perfObjs.Close()
-			return nil, fmt.Errorf("new perf reader: %w", err)
-		}
-		t.reader = &perfBufReader{rd}
+	programs, err := t.loadBpfObjects(useRingBuf)
+	if err != nil {
+		return nil, err
 	}
 
-	uprobeManager, err := uprobe.NewManager(procPath, cleanupInterval, probeSpecs)
+	registry := uprobe.ProbeRegistry{
+		"libpq": {
+			"PQsendQuery": uprobe.ProbeProgram{
+				Uprobe:    programs.TracePqsendquery,
+				Uretprobe: programs.TracePqsendqueryRet,
+			},
+		},
+		"lib/pq": {
+			"github.com/lib/pq.(*conn).query": uprobe.ProbeProgram{
+				Uprobe:    programs.TraceGoPqQuery,
+				Uretprobe: programs.TraceGoPqQueryRet,
+			},
+		},
+	}
+
+	if err := t.attachKernelProbes(programs); err != nil {
+		t.Close()
+		return nil, err
+	}
+
+	if err := t.createEventReader(useRingBuf, programs.Events); err != nil {
+		t.Close()
+		return nil, err
+	}
+
+	uprobeManager, err := uprobe.NewManager(procPath, cleanupInterval, registry)
 	if err != nil {
 		t.Close()
 		return nil, fmt.Errorf("create uprobe manager: %w", err)
@@ -176,6 +131,73 @@ func New(usePerfBuf bool, procPath string, cleanupInterval time.Duration) (*Trac
 	t.uprobeManager = uprobeManager
 
 	return t, nil
+}
+
+func (t *Tracer) loadBpfObjects(useRingBuf bool) (*BpfPrograms, error) {
+	if useRingBuf {
+		ringObjs := &bpf.BpfRingbufObjects{}
+		if err := bpf.LoadBpfRingbufObjects(ringObjs, nil); err != nil {
+			return nil, fmt.Errorf("load ringbuf objects: %w", err)
+		}
+		t.objs = ringObjs
+		return &BpfPrograms{
+			TracePqsendquery:    ringObjs.TracePqsendquery,
+			TracePqsendqueryRet: ringObjs.TracePqsendqueryRet,
+			TraceGoPqQuery:      ringObjs.TraceGoPqQuery,
+			TraceGoPqQueryRet:   ringObjs.TraceGoPqQueryRet,
+			KprobeFileOpen:      ringObjs.KprobeFileOpen,
+			TraceExecveExit:     ringObjs.TraceExecveExit,
+			Events:              ringObjs.Events,
+		}, nil
+	}
+
+	perfObjs := &bpf.BpfPerfbufObjects{}
+	if err := bpf.LoadBpfPerfbufObjects(perfObjs, nil); err != nil {
+		return nil, fmt.Errorf("load perfbuf objects: %w", err)
+	}
+	t.objs = perfObjs
+	return &BpfPrograms{
+		TracePqsendquery:    perfObjs.TracePqsendquery,
+		TracePqsendqueryRet: perfObjs.TracePqsendqueryRet,
+		TraceGoPqQuery:      perfObjs.TraceGoPqQuery,
+		TraceGoPqQueryRet:   perfObjs.TraceGoPqQueryRet,
+		KprobeFileOpen:      perfObjs.KprobeFileOpen,
+		TraceExecveExit:     perfObjs.TraceExecveExit,
+		Events:              perfObjs.Events,
+	}, nil
+}
+
+func (t *Tracer) attachKernelProbes(programs *BpfPrograms) error {
+	kprobeLink, err := link.Kprobe("do_dentry_open", programs.KprobeFileOpen, nil)
+	if err != nil {
+		return fmt.Errorf("attach kprobe: %w", err)
+	}
+	t.links = append(t.links, kprobeLink)
+
+	execLink, err := link.Tracepoint("syscalls", "sys_exit_execve", programs.TraceExecveExit, nil)
+	if err != nil {
+		return fmt.Errorf("attach execve tracepoint: %w", err)
+	}
+	t.links = append(t.links, execLink)
+
+	return nil
+}
+
+func (t *Tracer) createEventReader(useRingBuf bool, eventsMap *ebpf.Map) error {
+	if useRingBuf {
+		rd, err := ringbuf.NewReader(eventsMap)
+		if err != nil {
+			return fmt.Errorf("new ringbuf reader: %w", err)
+		}
+		t.reader = &ringBufReader{rd}
+	} else {
+		rd, err := perf.NewReader(eventsMap, 4096)
+		if err != nil {
+			return fmt.Errorf("new perf reader: %w", err)
+		}
+		t.reader = &perfBufReader{rd}
+	}
+	return nil
 }
 
 func (t *Tracer) Run() error {
@@ -200,46 +222,99 @@ func (t *Tracer) Run() error {
 
 		switch bpf.BpfEventType(eventType) {
 		case bpf.BpfEventTypeEVENT_TYPE_LIBRARY_LOAD:
-			var event bpf.BpfLibraryLoadEvent
-			if err := binary.Read(bytes.NewBuffer(rawSample), binary.LittleEndian, &event); err != nil {
-				slog.Error("parsing library load event", "error", err)
-				continue
-			}
-			comm := unix.ByteSliceToString(event.Header.Comm[:])
-			libName := unix.ByteSliceToString(event.LibraryName[:])
-			slog.Info("library loaded",
-				"pid", event.Header.Pid,
-				"tgid", event.Header.Tgid,
-				"comm", comm,
-				"library", libName,
-			)
-
-			if err := t.uprobeManager.HandleLibraryLoad(int(event.Header.Pid), libName); err != nil {
-				slog.Debug("uprobe attachment skipped",
-					"pid", event.Header.Pid,
-					"library", libName,
-					"reason", err)
-			}
+			t.handleLibraryLoadEvent(rawSample)
 
 		case bpf.BpfEventTypeEVENT_TYPE_POSTGRES_QUERY:
-			var event bpf.BpfPostgresQueryEvent
-			if err := binary.Read(bytes.NewBuffer(rawSample), binary.LittleEndian, &event); err != nil {
-				slog.Error("parsing postgres query event", "error", err)
-				continue
-			}
-			comm := unix.ByteSliceToString(event.Header.Comm[:])
-			query := unix.ByteSliceToString(event.Query[:])
-			slog.Info("postgres query",
-				"pid", event.Header.Pid,
-				"tgid", event.Header.Tgid,
-				"comm", comm,
-				"conn", fmt.Sprintf("0x%x", event.ConnPtr),
-				"query", query,
-			)
+			t.handlePostgresQueryEvent(rawSample)
+
+		case bpf.BpfEventTypeEVENT_TYPE_GO_POSTGRES_QUERY:
+			t.handleGoPostgresQueryEvent(rawSample)
+
+		case bpf.BpfEventTypeEVENT_TYPE_EXEC:
+			t.handleExecEvent(rawSample)
 
 		default:
 			slog.Warn("unknown event type", "type", eventType)
 		}
+	}
+}
+
+func (t *Tracer) handleLibraryLoadEvent(rawSample []byte) {
+	var event bpf.BpfLibraryLoadEvent
+	if err := binary.Read(bytes.NewBuffer(rawSample), binary.LittleEndian, &event); err != nil {
+		slog.Error("parsing library load event", "error", err)
+		return
+	}
+	comm := unix.ByteSliceToString(event.Header.Comm[:])
+	libName := unix.ByteSliceToString(event.LibraryName[:])
+	slog.Info("library loaded",
+		"pid", event.Header.Pid,
+		"tgid", event.Header.Tgid,
+		"comm", comm,
+		"library", libName,
+	)
+
+	if err := t.uprobeManager.HandleLibraryLoad(int(event.Header.Pid), libName); err != nil {
+		slog.Debug("uprobe attachment skipped",
+			"pid", event.Header.Pid,
+			"library", libName,
+			"reason", err)
+	}
+}
+
+func (t *Tracer) handlePostgresQueryEvent(rawSample []byte) {
+	var event bpf.BpfPostgresQueryEvent
+	if err := binary.Read(bytes.NewBuffer(rawSample), binary.LittleEndian, &event); err != nil {
+		slog.Error("parsing postgres query event", "error", err)
+		return
+	}
+	comm := unix.ByteSliceToString(event.Header.Comm[:])
+	query := unix.ByteSliceToString(event.Query[:])
+	slog.Info("postgres query",
+		"pid", event.Header.Pid,
+		"tgid", event.Header.Tgid,
+		"comm", comm,
+		"conn", fmt.Sprintf("0x%x", event.ConnPtr),
+		"query", query,
+	)
+}
+
+func (t *Tracer) handleGoPostgresQueryEvent(rawSample []byte) {
+	var event bpf.BpfGoPostgresQueryEvent
+	if err := binary.Read(bytes.NewBuffer(rawSample), binary.LittleEndian, &event); err != nil {
+		slog.Error("parsing go postgres query event", "error", err)
+		return
+	}
+	comm := unix.ByteSliceToString(event.Header.Comm[:])
+	query := unix.ByteSliceToString(event.Query[:])
+	slog.Info("go postgres query",
+		"pid", event.Header.Pid,
+		"tgid", event.Header.Tgid,
+		"comm", comm,
+		"conn", fmt.Sprintf("0x%x", event.ConnPtr),
+		"query", query,
+		"query_len", event.QueryLen,
+		"source", "lib/pq",
+	)
+}
+
+func (t *Tracer) handleExecEvent(rawSample []byte) {
+	var event bpf.BpfExecEvent
+	if err := binary.Read(bytes.NewBuffer(rawSample), binary.LittleEndian, &event); err != nil {
+		slog.Error("parsing exec event", "error", err)
+		return
+	}
+	comm := unix.ByteSliceToString(event.Header.Comm[:])
+	slog.Debug("process executed",
+		"pid", event.Header.Pid,
+		"tgid", event.Header.Tgid,
+		"comm", comm,
+	)
+
+	if err := t.uprobeManager.HandleExec(int(event.Header.Pid)); err != nil {
+		slog.Debug("exec handler skipped",
+			"pid", event.Header.Pid,
+			"reason", err)
 	}
 }
 
@@ -256,8 +331,10 @@ func (t *Tracer) Close() error {
 	if t.reader != nil {
 		t.reader.Close()
 	}
-	if t.link != nil {
-		t.link.Close()
+	for _, l := range t.links {
+		if l != nil {
+			l.Close()
+		}
 	}
 	if t.objs != nil {
 		t.objs.Close()

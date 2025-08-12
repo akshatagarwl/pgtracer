@@ -16,14 +16,40 @@ import (
 type BpfEventType uint32
 
 const (
-	BpfEventTypeEVENT_TYPE_LIBRARY_LOAD   BpfEventType = 1
-	BpfEventTypeEVENT_TYPE_POSTGRES_QUERY BpfEventType = 2
+	BpfEventTypeEVENT_TYPE_LIBRARY_LOAD      BpfEventType = 1
+	BpfEventTypeEVENT_TYPE_POSTGRES_QUERY    BpfEventType = 2
+	BpfEventTypeEVENT_TYPE_GO_POSTGRES_QUERY BpfEventType = 3
+	BpfEventTypeEVENT_TYPE_EXEC              BpfEventType = 4
 )
+
+type BpfExecEvent struct {
+	_      structs.HostLayout
+	Header BpfTraceEventHeader
+}
+
+type BpfGoPostgresQueryEvent struct {
+	_        structs.HostLayout
+	Header   BpfTraceEventHeader
+	ConnPtr  uint64
+	Query    [512]uint8
+	QueryLen uint32
+	_        [4]byte
+}
+
+type BpfGoQueryArgs struct {
+	_        structs.HostLayout
+	ConnPtr  uint64
+	QueryPtr uint64
+	QueryLen uint32
+	_        [4]byte
+}
 
 type BpfLibraryLoadEvent struct {
 	_           structs.HostLayout
 	Header      BpfTraceEventHeader
 	LibraryName [64]uint8
+	LibType     uint32
+	_           [4]byte
 }
 
 type BpfPgQueryArgs struct {
@@ -92,6 +118,9 @@ type BpfSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfProgramSpecs struct {
 	KprobeFileOpen      *ebpf.ProgramSpec `ebpf:"kprobe_file_open"`
+	TraceExecveExit     *ebpf.ProgramSpec `ebpf:"trace_execve_exit"`
+	TraceGoPqQuery      *ebpf.ProgramSpec `ebpf:"trace_go_pq_query"`
+	TraceGoPqQueryRet   *ebpf.ProgramSpec `ebpf:"trace_go_pq_query_ret"`
 	TracePqsendquery    *ebpf.ProgramSpec `ebpf:"trace_pqsendquery"`
 	TracePqsendqueryRet *ebpf.ProgramSpec `ebpf:"trace_pqsendquery_ret"`
 }
@@ -100,8 +129,11 @@ type BpfProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfMapSpecs struct {
+	ActiveGoQueries *ebpf.MapSpec `ebpf:"active_go_queries"`
 	ActivePgQueries *ebpf.MapSpec `ebpf:"active_pg_queries"`
 	Events          *ebpf.MapSpec `ebpf:"events"`
+	ExecHeap        *ebpf.MapSpec `ebpf:"exec_heap"`
+	GoQueryHeap     *ebpf.MapSpec `ebpf:"go_query_heap"`
 	LibraryHeap     *ebpf.MapSpec `ebpf:"library_heap"`
 	QueryHeap       *ebpf.MapSpec `ebpf:"query_heap"`
 }
@@ -110,6 +142,7 @@ type BpfMapSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type BpfVariableSpecs struct {
+	UnusedGoQuery *ebpf.VariableSpec `ebpf:"unused_go_query"`
 	UnusedLibrary *ebpf.VariableSpec `ebpf:"unused_library"`
 	UnusedQuery   *ebpf.VariableSpec `ebpf:"unused_query"`
 }
@@ -134,16 +167,22 @@ func (o *BpfObjects) Close() error {
 //
 // It can be passed to LoadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfMaps struct {
+	ActiveGoQueries *ebpf.Map `ebpf:"active_go_queries"`
 	ActivePgQueries *ebpf.Map `ebpf:"active_pg_queries"`
 	Events          *ebpf.Map `ebpf:"events"`
+	ExecHeap        *ebpf.Map `ebpf:"exec_heap"`
+	GoQueryHeap     *ebpf.Map `ebpf:"go_query_heap"`
 	LibraryHeap     *ebpf.Map `ebpf:"library_heap"`
 	QueryHeap       *ebpf.Map `ebpf:"query_heap"`
 }
 
 func (m *BpfMaps) Close() error {
 	return _BpfClose(
+		m.ActiveGoQueries,
 		m.ActivePgQueries,
 		m.Events,
+		m.ExecHeap,
+		m.GoQueryHeap,
 		m.LibraryHeap,
 		m.QueryHeap,
 	)
@@ -153,6 +192,7 @@ func (m *BpfMaps) Close() error {
 //
 // It can be passed to LoadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfVariables struct {
+	UnusedGoQuery *ebpf.Variable `ebpf:"unused_go_query"`
 	UnusedLibrary *ebpf.Variable `ebpf:"unused_library"`
 	UnusedQuery   *ebpf.Variable `ebpf:"unused_query"`
 }
@@ -162,6 +202,9 @@ type BpfVariables struct {
 // It can be passed to LoadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type BpfPrograms struct {
 	KprobeFileOpen      *ebpf.Program `ebpf:"kprobe_file_open"`
+	TraceExecveExit     *ebpf.Program `ebpf:"trace_execve_exit"`
+	TraceGoPqQuery      *ebpf.Program `ebpf:"trace_go_pq_query"`
+	TraceGoPqQueryRet   *ebpf.Program `ebpf:"trace_go_pq_query_ret"`
 	TracePqsendquery    *ebpf.Program `ebpf:"trace_pqsendquery"`
 	TracePqsendqueryRet *ebpf.Program `ebpf:"trace_pqsendquery_ret"`
 }
@@ -169,6 +212,9 @@ type BpfPrograms struct {
 func (p *BpfPrograms) Close() error {
 	return _BpfClose(
 		p.KprobeFileOpen,
+		p.TraceExecveExit,
+		p.TraceGoPqQuery,
+		p.TraceGoPqQueryRet,
 		p.TracePqsendquery,
 		p.TracePqsendqueryRet,
 	)
