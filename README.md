@@ -1,6 +1,8 @@
 # pgtracer
 eBPF-based PostgreSQL query tracer for Linux that captures SQL queries across multiple programming languages and environments.
 
+https://github.com/user-attachments/assets/d8978cb7-a79b-43b3-b0fd-13342b2c5a7b
+
 ## Build
 
 ```bash
